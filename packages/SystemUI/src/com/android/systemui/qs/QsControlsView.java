@@ -15,7 +15,11 @@
  */
 package com.android.systemui.qs;
 
+import android.bluetooth.BluetoothAdapter;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.res.Configuration;
 import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
@@ -38,6 +42,7 @@ import android.hardware.camera2.CameraManager;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
+import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.widget.FrameLayout;
@@ -47,8 +52,11 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
+import androidx.annotation.Nullable;
+
 import com.android.internal.graphics.ColorUtils;
 
+import com.android.settingslib.net.DataUsageController;
 import com.android.settingslib.Utils;
 
 import com.android.systemui.Dependency;
@@ -58,9 +66,21 @@ import com.android.systemui.lockscreen.ActivityLauncherUtils;
 import com.android.systemui.media.dialog.MediaOutputDialogFactory;
 import com.android.systemui.plugins.ActivityStarter;
 import com.android.systemui.plugins.FalsingManager;
+import com.android.systemui.qs.tiles.dialog.bluetooth.BluetoothTileDialogViewModel;
+import com.android.systemui.qs.tiles.dialog.InternetDialogManager;
 import com.android.systemui.qs.VerticalSlider;
+import com.android.systemui.statusbar.connectivity.AccessPointController;
+import com.android.systemui.statusbar.connectivity.IconState;
+import com.android.systemui.statusbar.connectivity.NetworkController;
+import com.android.systemui.statusbar.connectivity.SignalCallback;
+import com.android.systemui.statusbar.connectivity.MobileDataIndicators;
+import com.android.systemui.statusbar.connectivity.WifiIndicators;
+import com.android.systemui.statusbar.policy.BluetoothController;
+import com.android.systemui.statusbar.policy.BluetoothController.Callback;
 import com.android.systemui.statusbar.policy.FlashlightController;
 import com.android.systemui.statusbar.NotificationMediaManager;
+
+import com.android.internal.util.android.VibrationUtils;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.StringRes;
@@ -75,26 +95,43 @@ import android.view.KeyEvent;
 
 public class QsControlsView extends FrameLayout {
 
-    private final static String PERSONALIZATIONS_ACTIVITY = "com.android.settings.Settings$crDroidSettingsLayoutActivity";
+    public static final int AIRPLANE_ACTIVE = R.drawable.qs_airplane_icon_on;
+    public static final int AIRPLANE_INACTIVE = R.drawable.qs_airplane_icon_off;
+    public static final int BT_ACTIVE = R.drawable.qs_bluetooth_icon_on;
+    public static final int BT_INACTIVE = R.drawable.qs_bluetooth_icon_off;
+    public static final int DATA_ACTIVE = R.drawable.ic_signal_cellular_alt_24;
+    public static final int DATA_INACTIVE = R.drawable.ic_mobiledata_off_24;
+    public static final int WIFI_ACTIVE = R.drawable.ic_wifi_24;
+    public static final int WIFI_INACTIVE = R.drawable.ic_wifi_off_24;
 
     private List<View> mControlTiles = new ArrayList<>();
     private List<View> mMediaPlayerViews = new ArrayList<>();
     private List<View> mWidgetViews = new ArrayList<>();
     private List<Runnable> metadataCheckRunnables = new ArrayList<>();
 
-    private View mSettingsButton, mVoiceAssist, mRunningServiceButton, mInterfaceButton, mMediaCard, mAccessBg, mWidgetsBg;
+    private View mMediaCard, mAccessBg, mWidgetsBg;
     private View mClockTimer, mCalculator, mCamera, mPagerLayout, mMediaLayout, mAccessLayout, mWidgetsLayout;
     private ImageView mTorch;
+    private LaunchableImageView mDataButton, mWifiButton, mBtButton, mAirplaneButton;
     
     private QsControlsPageIndicator mAccessPageIndicator, mMediaPageIndicator, mWidgetsPageIndicator;
     private VerticalSlider mBrightnessSlider, mVolumeSlider;
 
+    private final AccessPointController mAccessPointController;
     private final ActivityStarter mActivityStarter;
     private final FalsingManager mFalsingManager;
     private final FlashlightController mFlashlightController;
     private final MediaOutputDialogFactory mMediaOutputDialogFactory;
     private final NotificationMediaManager mNotifManager;
     private final ActivityLauncherUtils mActivityLauncherUtils;
+    private final NetworkController mNetworkController;
+    private final BluetoothController mBluetoothController;
+    private final BluetoothTileDialogViewModel mBluetoothTileDialogViewModel;
+    private final DataUsageController mDataController;
+    private final InternetDialogManager mInternetDialogManager;
+    
+    protected final CellSignalCallback mCellSignalCallback = new CellSignalCallback();
+    protected final WifiSignalCallback mWifiSignalCallback = new WifiSignalCallback();
 
     private ViewPager mViewPager;
     private PagerAdapter pagerAdapter;
@@ -128,12 +165,18 @@ public class QsControlsView extends FrameLayout {
         try {
             cameraId = cameraManager.getCameraIdList()[0];
         } catch (Exception e) {}
-        mActivityStarter = Dependency.get(ActivityStarter.class);
-        mFalsingManager = Dependency.get(FalsingManager.class);
-        mNotifManager = Dependency.get(NotificationMediaManager.class);
-        mMediaOutputDialogFactory = Dependency.get(MediaOutputDialogFactory.class);
-        mFlashlightController = Dependency.get(FlashlightController.class);
         mActivityLauncherUtils = new ActivityLauncherUtils(context);
+        mActivityStarter = Dependency.get(ActivityStarter.class);
+        mAccessPointController = Dependency.get(AccessPointController.class);
+        mBluetoothController = Dependency.get(BluetoothController.class);
+        mBluetoothTileDialogViewModel = Dependency.get(BluetoothTileDialogViewModel.class);
+        mFalsingManager = Dependency.get(FalsingManager.class);
+        mFlashlightController = Dependency.get(FlashlightController.class);
+        mMediaOutputDialogFactory = Dependency.get(MediaOutputDialogFactory.class);
+        mNotifManager = Dependency.get(NotificationMediaManager.class);
+        mInternetDialogManager = Dependency.get(InternetDialogManager.class);
+        mNetworkController = Dependency.get(NetworkController.class);
+        mDataController = mNetworkController.getMobileDataController();
     }
 
     private final MediaController.Callback mMediaCallback = new MediaController.Callback() {
@@ -188,10 +231,10 @@ public class QsControlsView extends FrameLayout {
         mMediaLayout = mPagerLayout.findViewById(R.id.qs_controls_media);
         mAccessLayout = mPagerLayout.findViewById(R.id.qs_controls_tile_access);
         mWidgetsLayout = mPagerLayout.findViewById(R.id.qs_controls_tile_widgets);
-        mVoiceAssist = mAccessLayout.findViewById(R.id.qs_voice_assist);
-        mSettingsButton = mAccessLayout.findViewById(R.id.settings_button);
-        mRunningServiceButton = mAccessLayout.findViewById(R.id.running_services_button);
-        mInterfaceButton = mAccessLayout.findViewById(R.id.interface_button);
+        mWifiButton = mAccessLayout.findViewById(R.id.wifi_btn);
+        mBtButton = mAccessLayout.findViewById(R.id.bt_btn);
+        mAirplaneButton = mAccessLayout.findViewById(R.id.airplane_btn);
+        mDataButton = mAccessLayout.findViewById(R.id.data_btn);
         mTorch = mWidgetsLayout.findViewById(R.id.qs_flashlight);
         mClockTimer = mWidgetsLayout.findViewById(R.id.qs_clock_timer);
         mCalculator = mWidgetsLayout.findViewById(R.id.qs_calculator);
@@ -210,8 +253,7 @@ public class QsControlsView extends FrameLayout {
         mAccessPageIndicator = mAccessLayout.findViewById(R.id.access_page_indicator);
         mMediaPageIndicator = mMediaLayout.findViewById(R.id.media_page_indicator);
         mWidgetsPageIndicator = mWidgetsLayout.findViewById(R.id.widgets_page_indicator);
-        collectViews(mControlTiles, mVoiceAssist, mSettingsButton, mRunningServiceButton, 
-            mInterfaceButton, (View) mTorch, mClockTimer, mCalculator, mCamera);
+        collectViews(mControlTiles, (View) mTorch, mClockTimer, mCalculator, mCamera);
         collectViews(mMediaPlayerViews, mMediaPrevBtn, mMediaPlayBtn, mMediaNextBtn, 
                 mMediaAlbumArtBg, mPlayerIcon, mMediaTitle, mMediaArtist);
         collectViews(mWidgetViews, mMediaLayout, mAccessLayout, mWidgetsLayout);
@@ -225,6 +267,7 @@ public class QsControlsView extends FrameLayout {
             }
         };
         updateMediaController();
+        updateTileButtonState(mAirplaneButton, isAirplaneModeEnabled(), AIRPLANE_ACTIVE, AIRPLANE_INACTIVE);
 	}
 
     @Override
@@ -235,24 +278,37 @@ public class QsControlsView extends FrameLayout {
         }
         setClickListeners();
         updateResources();
+        mBluetoothController.addCallback(mBtCallback);
         mFlashlightController.addCallback(mFlashlightCallback);
+        mNetworkController.addCallback(mCellSignalCallback);
+        mNetworkController.addCallback(mWifiSignalCallback);
+        final IntentFilter filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_AIRPLANE_MODE_CHANGED);
+        mContext.registerReceiver(mAirplaneReceiver, filter);
     }
     
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
+        mBluetoothController.removeCallback(mBtCallback);
         mFlashlightController.removeCallback(mFlashlightCallback);
+        mNetworkController.removeCallback(mCellSignalCallback);
+        mNetworkController.removeCallback(mWifiSignalCallback);
+        mContext.unregisterReceiver(mAirplaneReceiver);
     }
 
     private void setClickListeners() {
         mTorch.setOnClickListener(view -> toggleFlashlight());
         mClockTimer.setOnClickListener(view -> mActivityLauncherUtils.launchTimer());
         mCalculator.setOnClickListener(view -> mActivityLauncherUtils.launchCalculator());
-        mVoiceAssist.setOnClickListener(view -> mActivityLauncherUtils.launchVoiceAssistant());
         mCamera.setOnClickListener(view -> mActivityLauncherUtils.launchCamera());
-        mSettingsButton.setOnClickListener(mSettingsOnClickListener);
-        mRunningServiceButton.setOnClickListener(mSettingsOnClickListener);
-        mInterfaceButton.setOnClickListener(mSettingsOnClickListener);
+        mBtButton.setOnClickListener(view -> toggleBluetoothState());
+        mBtButton.setOnLongClickListener(v -> { showBluetoothDialog(v); return true; });
+        mAirplaneButton.setOnClickListener(view -> toggleAirPlaneMode());
+        mDataButton.setOnClickListener(view -> toggleMobileData());
+        mDataButton.setOnLongClickListener(v -> { showInternetDialog(v); return true; });
+        mWifiButton.setOnClickListener(view -> toggleWiFi());
+        mWifiButton.setOnLongClickListener(v -> { showInternetDialog(v); return true; });
         mMediaPlayBtn.setOnClickListener(view -> performMediaAction(MediaAction.TOGGLE_PLAYBACK));
         mMediaPrevBtn.setOnClickListener(view -> performMediaAction(MediaAction.PLAY_PREVIOUS));
         mMediaNextBtn.setOnClickListener(view -> performMediaAction(MediaAction.PLAY_NEXT));
@@ -440,6 +496,7 @@ public class QsControlsView extends FrameLayout {
             }
         };
         mViewPager.setAdapter(pagerAdapter);
+        mViewPager.setCurrentItem(1);
         mAccessPageIndicator.setupWithViewPager(mViewPager);
         mMediaPageIndicator.setupWithViewPager(mViewPager);
         mWidgetsPageIndicator.setupWithViewPager(mViewPager);
@@ -502,7 +559,7 @@ public class QsControlsView extends FrameLayout {
                     backgroundResource = isFlashOn ? R.drawable.qs_controls_tile_background_active : R.drawable.qs_controls_tile_background;
                     imageTintColor = isFlashOn ? mBgColor : mTintColor;
                     backgroundTintColor = isFlashOn ? mAccentColor : mBgColor;
-                } else if (tile == mInterfaceButton || tile == mCamera) {
+                } else if (tile == mCamera) {
                     backgroundResource = R.drawable.qs_controls_tile_background_active;
                     imageTintColor = mBgColor;
                     backgroundTintColor = mAccentColor;
@@ -521,22 +578,6 @@ public class QsControlsView extends FrameLayout {
     private int getMediaItemColor() {
         return isMediaPlaying() ? Color.WHITE : mTintColor;
     }
-
-    private final View.OnClickListener mSettingsOnClickListener = new View.OnClickListener() {
-        @Override
-        public void onClick(View v) {
-	        if (mFalsingManager != null && mFalsingManager.isFalseTap(FalsingManager.LOW_PENALTY)) {
-		        return;
-	        }
-	        if (v == mSettingsButton) {
-		        mActivityLauncherUtils.startSettingsActivity();
-	        } else if (v == mRunningServiceButton) {
-		        mActivityLauncherUtils.launchSettingsComponent("com.android.settings.Settings$DevRunningServicesActivity");
-	        } else if (v == mInterfaceButton) {
-		        mActivityLauncherUtils.launchSettingsComponent(PERSONALIZATIONS_ACTIVITY);
-	        }
-        }
-    };
 
     public void updateResources() {
         if (mBrightnessSlider != null && mVolumeSlider != null) {
@@ -630,4 +671,163 @@ public class QsControlsView extends FrameLayout {
         PLAY_PREVIOUS,
         PLAY_NEXT
     }
+
+    private void updateWiFiButtonState(boolean enabled) {;
+        final WifiCallbackInfo cbi = mWifiSignalCallback.mInfo;
+        updateTileButtonState(mWifiButton, enabled, WIFI_ACTIVE, WIFI_INACTIVE);
+    }
+
+    private void updateTileButtonState(
+            LaunchableImageView iv,  boolean active, 
+            int activeResource, int inactiveResource) {
+        post(new Runnable() {
+            @Override
+            public void run() {
+                if (iv != null) {
+                    iv.setImageResource(active ? activeResource : inactiveResource);
+                    setButtonActiveState(iv, active);
+                }
+            }
+        });
+    }
+    
+    private void setButtonActiveState(LaunchableImageView iv, boolean active) {
+        int bgTint = active ? mAccentColor : mBgColor;
+        int tintColor = active ? mBgColor : mTintColor;
+        if (iv != null) {
+            iv.setBackgroundTintList(ColorStateList.valueOf(bgTint));
+            iv.setImageTintList(ColorStateList.valueOf(tintColor));
+            iv.setBackgroundResource(active ?  R.drawable.qs_controls_tile_background_active :  R.drawable.qs_controls_tile_background);
+        }
+    }
+
+    private void toggleWiFi() {
+        final WifiCallbackInfo cbi = mWifiSignalCallback.mInfo;
+        mNetworkController.setWifiEnabled(!cbi.enabled);
+        updateWiFiButtonState(!cbi.enabled);
+        mHandler.postDelayed(() -> {
+            updateWiFiButtonState(cbi.enabled);
+        }, 250);
+    }
+
+    private boolean isMobileDataEnabled() {
+        return mDataController.isMobileDataEnabled();
+    }
+
+    private void toggleMobileData() {
+        mDataController.setMobileDataEnabled(!isMobileDataEnabled());
+        updateMobileDataState(!isMobileDataEnabled());
+        mHandler.postDelayed(() -> {
+            updateMobileDataState(isMobileDataEnabled());
+        }, 250);
+    }
+
+    private void showInternetDialog(View view) {
+        post(() -> mInternetDialogManager.create(true,
+                mAccessPointController.canConfigMobileData(),
+                mAccessPointController.canConfigWifi(), view));
+        VibrationUtils.triggerVibration(mContext, 2);
+    }
+
+    private final BluetoothController.Callback mBtCallback = new BluetoothController.Callback() {
+        @Override
+        public void onBluetoothStateChange(boolean enabled) {
+            updateBtState();
+        }
+
+        @Override
+        public void onBluetoothDevicesChanged() {
+            updateBtState();
+        }
+    };
+    
+    private void updateMobileDataState(boolean enabled) {
+        updateTileButtonState(mDataButton, enabled, DATA_ACTIVE, DATA_INACTIVE);
+    }
+    
+    private void toggleBluetoothState() {
+        mBluetoothController.setBluetoothEnabled(!isBluetoothEnabled());
+        updateBtState();
+        mHandler.postDelayed(() -> {
+            updateBtState();
+        }, 250);
+    }
+    
+    private void showBluetoothDialog(View view) {
+        boolean isAutoOn = Settings.System.getInt(mContext.getContentResolver(),
+                Settings.System.QS_BT_AUTO_ON, 0) == 1;
+        post(() -> 
+            mBluetoothTileDialogViewModel.showDialog(mContext, view, isAutoOn));
+        VibrationUtils.triggerVibration(mContext, 2);
+    }
+    
+    private void updateBtState() {
+        updateTileButtonState(mBtButton, isBluetoothEnabled(), BT_ACTIVE, BT_INACTIVE);
+    }
+    
+    private boolean isBluetoothEnabled() {
+        final BluetoothAdapter mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        return mBluetoothAdapter != null && mBluetoothAdapter.isEnabled();
+    }
+    
+    private void toggleAirPlaneMode() {
+        Settings.Global.putInt(mContext.getContentResolver(),
+            Settings.Global.AIRPLANE_MODE_ON, isAirplaneModeEnabled() ? 0 : 1);
+        Intent intent = new Intent(Intent.ACTION_AIRPLANE_MODE_CHANGED);
+        intent.putExtra("state", !isAirplaneModeEnabled());
+        mContext.sendBroadcast(intent);
+    }
+    
+    private boolean isAirplaneModeEnabled() {
+        return Settings.Global.getInt(mContext.getContentResolver(),
+                Settings.Global.AIRPLANE_MODE_ON, 0) == 1;
+    }
+
+    protected static final class WifiCallbackInfo {
+        boolean enabled;
+        @Nullable
+        String ssid;
+    }
+
+    protected final class WifiSignalCallback implements SignalCallback {
+        final WifiCallbackInfo mInfo = new WifiCallbackInfo();
+        @Override
+        public void setWifiIndicators(@NonNull WifiIndicators indicators) {
+            if (indicators.qsIcon == null) {
+                updateWiFiButtonState(false);
+                return;
+            }
+            mInfo.enabled = indicators.enabled;
+            mInfo.ssid = indicators.description;
+            updateWiFiButtonState(mInfo.enabled);
+        }
+    }
+
+    private final class CellSignalCallback implements SignalCallback {
+        @Override
+        public void setMobileDataIndicators(@NonNull MobileDataIndicators indicators) {
+            if (indicators.qsIcon == null) {
+                updateMobileDataState(false);
+                return;
+            }
+            updateMobileDataState(isMobileDataEnabled());
+        }
+        @Override
+        public void setNoSims(boolean show, boolean simDetected) {
+            updateMobileDataState(simDetected && isMobileDataEnabled());
+        }
+        @Override
+        public void setIsAirplaneMode(@NonNull IconState icon) {
+            updateMobileDataState(!icon.visible && isMobileDataEnabled());
+        }
+    }
+    
+    private final BroadcastReceiver mAirplaneReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (Intent.ACTION_AIRPLANE_MODE_CHANGED.equals(intent.getAction())) {
+                updateTileButtonState(mAirplaneButton, isAirplaneModeEnabled(), AIRPLANE_ACTIVE, AIRPLANE_INACTIVE);
+            }
+        }
+    };
 }
