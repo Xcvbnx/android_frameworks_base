@@ -13,11 +13,11 @@
     android:layout_height="wrap_content">
 
     <!-- media player layout -->
-    <include layout="@layout/qs_controls_media_widgets"
-        android:visibility="gone" />
+    <include layout="@layout/qs_controls_media_widgets" />
 
     <!-- accessibility -->
-    <include layout="@layout/qs_controls_tile_access" />
+    <include layout="@layout/qs_controls_tile_access"
+        android:visibility="gone" />
 
     <!-- widgets layout -->
     <include layout="@layout/qs_controls_tile_widgets"

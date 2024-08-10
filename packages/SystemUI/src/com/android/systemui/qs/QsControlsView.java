@@ -109,12 +109,11 @@ public class QsControlsView extends FrameLayout {
     private List<View> mWidgetViews = new ArrayList<>();
     private List<Runnable> metadataCheckRunnables = new ArrayList<>();
 
-    private View mMediaCard, mAccessBg, mWidgetsBg;
+    private View mMediaCard;
     private View mClockTimer, mCalculator, mCamera, mPagerLayout, mMediaLayout, mAccessLayout, mWidgetsLayout;
     private ImageView mTorch;
     private LaunchableImageView mDataButton, mWifiButton, mBtButton, mAirplaneButton;
-    
-    private QsControlsPageIndicator mAccessPageIndicator, mMediaPageIndicator, mWidgetsPageIndicator;
+
     private VerticalSlider mBrightnessSlider, mVolumeSlider;
 
     private final AccessPointController mAccessPointController;
@@ -248,11 +247,6 @@ public class QsControlsView extends FrameLayout {
         mMediaNextBtn = mMediaLayout.findViewById(R.id.next_button);
         mPlayerIcon = mMediaLayout.findViewById(R.id.player_icon);
         mMediaCard = mMediaLayout.findViewById(R.id.media_cardview);
-        mAccessBg = mAccessLayout.findViewById(R.id.qs_controls_access_layout);
-        mWidgetsBg = mWidgetsLayout.findViewById(R.id.qs_controls_widgets_layout);
-        mAccessPageIndicator = mAccessLayout.findViewById(R.id.access_page_indicator);
-        mMediaPageIndicator = mMediaLayout.findViewById(R.id.media_page_indicator);
-        mWidgetsPageIndicator = mWidgetsLayout.findViewById(R.id.widgets_page_indicator);
         collectViews(mControlTiles, (View) mTorch, mClockTimer, mCalculator, mCamera);
         collectViews(mMediaPlayerViews, mMediaPrevBtn, mMediaPlayBtn, mMediaNextBtn, 
                 mMediaAlbumArtBg, mPlayerIcon, mMediaTitle, mMediaArtist);
@@ -496,10 +490,7 @@ public class QsControlsView extends FrameLayout {
             }
         };
         mViewPager.setAdapter(pagerAdapter);
-        mViewPager.setCurrentItem(1);
-        mAccessPageIndicator.setupWithViewPager(mViewPager);
-        mMediaPageIndicator.setupWithViewPager(mViewPager);
-        mWidgetsPageIndicator.setupWithViewPager(mViewPager);
+        mViewPager.setCurrentItem(0);
         mViewPager.addOnPageChangeListener(new ViewPager.OnPageChangeListener() {
             @Override
             public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) {}
@@ -530,15 +521,8 @@ public class QsControlsView extends FrameLayout {
         mTintColor = mContext.getResources().getColor(isNightMode() ? R.color.qs_controls_bg_color_light : R.color.qs_controls_bg_color_dark);
         mContainerColor = mContext.getResources().getColor(isNightMode() ? R.color.qs_controls_container_bg_color_dark : R.color.qs_controls_container_bg_color_light);
         updateTiles();
-        if (mAccessBg != null && mMediaCard != null && mWidgetsBg != null) {
+        if (mMediaCard != null) {
             mMediaCard.getBackground().setTint(mContainerColor);
-            mAccessBg.setBackgroundTintList(ColorStateList.valueOf(mContainerColor));
-            mWidgetsBg.setBackgroundTintList(ColorStateList.valueOf(mContainerColor));
-        }
-        if (mAccessPageIndicator != null && mMediaPageIndicator != null && mWidgetsPageIndicator != null) {
-            mAccessPageIndicator.updateColors(isNightMode());
-            mMediaPageIndicator.updateColors(isNightMode());
-            mWidgetsPageIndicator.updateColors(isNightMode());
         }
         updateMediaPlaybackState();
     }

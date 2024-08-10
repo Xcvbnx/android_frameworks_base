@@ -11,7 +11,7 @@
         android:layout_height="@dimen/qs_controls_tile_height"
         android:layout_marginTop="@dimen/qs_controls_slider_margin_top"
         android:layout_marginBottom="@dimen/qs_controls_slider_margin_bottom"
-        android:layout_marginEnd="@dimen/qs_controls_tile_margin_end"
+        android:layout_marginEnd="@dimen/qs_controls_tile_media_margin_end"
         app:cardBackgroundColor="@color/qs_controls_surface_color"
         app:cardCornerRadius="@dimen/qs_controls_container_radius"
         app:cardElevation="0dp"
@@ -42,7 +42,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:text="@string/no_media_playing"
-                    android:textSize="18sp"
+                    android:textSize="16sp"
                     android:textColor="@*android:color/white"
                     android:ellipsize="marquee"
                     android:maxLines="1"
@@ -56,7 +56,9 @@
                     android:id="@+id/player_icon"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"/>
+                    android:layout_marginStart="8dp"
+                    android:maxWidth="24dp"
+                    android:maxHeight="24dp"/>
             </LinearLayout>
             <TextView
                 android:id="@+id/artist_name"
@@ -78,7 +80,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginTop="32dp"
+                android:layout_marginTop="42dp"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintEnd_toEndOf="parent">
                 <ImageView
@@ -113,6 +115,7 @@
             </LinearLayout>
             <com.android.systemui.qs.QsControlsPageIndicator
                 android:id="@+id/media_page_indicator"
+                android:visibility="invisible"
                 android:layout_alignParentBottom="true"
                 android:layout_centerHorizontal="true"
                 android:layout_marginBottom="4dp"

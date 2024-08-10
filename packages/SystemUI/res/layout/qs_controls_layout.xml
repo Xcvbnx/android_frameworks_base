@@ -8,6 +8,7 @@
     android:clipToPadding="false"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:layout_marginTop="@dimen/qs_controls_margin_top"
     android:layout_marginBottom="@dimen/qs_controls_margin_bottom"
     android:baselineAligned="false">
 
